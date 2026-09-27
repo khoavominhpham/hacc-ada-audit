@@ -95,3 +95,4 @@
 
 # Ignore .env files as they are personal
 #/.env
+config/key.key.openai_api_key.yml
