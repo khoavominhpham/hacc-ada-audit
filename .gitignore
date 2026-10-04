@@ -96,3 +96,7 @@
 # Ignore .env files as they are personal
 #/.env
 config/key.key.openai_api_key.yml
+
+# ML Pipeline Data
+ml_pipeline/data/*.json
+ml_pipeline/chroma_db/
