@@ -1,0 +1,117 @@
+<?php
+
+use Drupal\node\NodeInterface;
+use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\Render\Markup;
+
+/**
+ * Implements hook_form_BASE_FORM_ID_alter() for node_form.
+ */
+function hacc_ada_api_form_node_form_alter(&$form, FormStateInterface $form_state, $form_id) {
+  $node = $form_state->getFormObject()->getEntity();
+  if ($node instanceof NodeInterface && $node->hasField('field_body')) {
+    $form['hacc_ada_governance'] = [
+      '#type' => 'details',
+      '#title' => t('✨ AI Accessibility Governance'),
+      '#open' => TRUE,
+      '#weight' => 95,
+    ];
+
+    $form['hacc_ada_governance']['hacc_auto_apply_remediation'] = [
+      '#type' => 'checkbox',
+      '#title' => t('<strong>Auto-Apply AI Remediation on Save</strong>'),
+      '#description' => t('When checked, the AI engine will automatically overwrite the Body HTML with repaired heading hierarchies, injected VLM alt-text, and simplified paragraphs upon saving. Leave unchecked to review and copy the remediated HTML from the Scorecard drawer manually.'),
+      '#default_value' => FALSE,
+    ];
+
+    $form['#entity_builders'][] = 'hacc_ada_api_node_builder';
+  }
+}
+
+/**
+ * Entity builder callback to map the checkbox state onto the Node entity.
+ */
+function hacc_ada_api_node_builder($entity_type, NodeInterface $node, &$form, FormStateInterface $form_state) {
+  $node->hacc_auto_apply_remediation = (bool) $form_state->getValue('hacc_auto_apply_remediation');
+}
+
+/**
+ * Implements hook_node_presave().
+ */
+function hacc_ada_api_node_presave(NodeInterface $node) {
+  // Skip live API linting during bulk Drush CLI imports
+  if (PHP_SAPI === 'cli') {
+    return;
+  }
+
+  if ($node->hasField('field_body') && !$node->get('field_body')->isEmpty()) {
+    $body = $node->get('field_body')->value;
+    $text_format = $node->get('field_body')->format ?: 'full_html';
+    $auto_apply = !empty($node->hacc_auto_apply_remediation);
+    
+    try {
+      $client = \Drupal::httpClient();
+      
+      $response = $client->request('POST', 'http://172.17.0.1:8000/api/v1/analyze-structure', [
+        'json' => [
+          'html_body' => $body,
+          'auto_remediate' => TRUE,
+        ],
+        'timeout' => 45,
+      ]);
+      
+      $data = json_decode((string) $response->getBody(), TRUE);
+      
+      if (!empty($data['violations_found']) && $data['violations_found'] > 0) {
+        // If the user checked "Auto-Apply AI Remediation on Save", overwrite field_body in-place!
+        if ($auto_apply && !empty($data['remediated_html'])) {
+          $node->set('field_body', [
+            'value' => $data['remediated_html'],
+            'format' => $text_format,
+          ]);
+          \Drupal::messenger()->addStatus(Markup::create(
+            '<strong>✨ Auto-Remediation Applied!</strong> The AI engine automatically fixed <strong>' . (int) $data['violations_found'] . ' accessibility issues</strong> directly in this page\'s HTML (headings repaired, VLM alt-text injected, and complex paragraphs simplified).'
+          ));
+        }
+
+        $header_label = $auto_apply
+          ? 'Accessibility Scorecard (' . (int) $data['violations_found'] . ' Issues Automatically Fixed in Page Content)'
+          : 'Accessibility Scorecard (' . (int) $data['violations_found'] . ' Issues Identified & Ready for Remediation)';
+
+        $scorecard = '<strong>' . $header_label . '</strong>';
+        $scorecard .= '<ul style="margin-top: 8px;">';
+        
+        foreach ($data['violations'] as $v) {
+          $citation = !empty($v['wcag_citation']) ? htmlspecialchars($v['wcag_citation']) : 'WCAG 2.2 AA';
+          $scorecard .= sprintf(
+            '<li style="margin-bottom: 12px;"><strong>[%s]</strong> %s <br/>' .
+            '💡 <em>Remediation: %s</em><br/>' .
+            '<small style="opacity: 0.85;">📚 <strong>RAG Citation:</strong> %s</small></li>',
+            htmlspecialchars($v['category']),
+            htmlspecialchars($v['message']),
+            htmlspecialchars($v['suggestion']),
+            $citation
+          );
+        }
+        $scorecard .= '</ul>';
+
+        // Always render collapsible Auto-Remediated HTML drawer for inspection or copy/paste
+        if (!empty($data['remediated_html'])) {
+          $escaped_html = htmlspecialchars($data['remediated_html']);
+          $scorecard .= '<details style="margin-top: 12px; background: rgba(255,255,255,0.08); padding: 10px; border-radius: 6px;">';
+          $scorecard .= '<summary style="cursor: pointer; font-weight: bold;">✨ View / Copy AI Auto-Remediated HTML</summary>';
+          $scorecard .= '<p style="margin: 6px 0; font-size: 0.9em;">All heading hierarchies, missing VLM alt-attributes, and complex paragraphs have been automatically repaired below:</p>';
+          $scorecard .= '<textarea readonly onclick="this.select();" style="width: 100%; height: 160px; font-family: monospace; font-size: 12px; color: #111; background: #f8f9fa; padding: 8px; border-radius: 4px;">' . $escaped_html . '</textarea>';
+          $scorecard .= '</details>';
+        }
+        
+        \Drupal::messenger()->addWarning(Markup::create($scorecard));
+      } else {
+        \Drupal::messenger()->addStatus('ADA Check Passed: All automated accessibility standards met.');
+      }
+      
+    } catch (\Throwable $e) {
+      \Drupal::messenger()->addError('Could not reach the Python ADA Accessibility API: ' . $e->getMessage());
+    }
+  }
+}

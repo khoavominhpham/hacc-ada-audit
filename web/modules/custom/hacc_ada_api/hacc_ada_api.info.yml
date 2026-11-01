@@ -1,0 +1,5 @@
+name: 'HACC ADA API Bridge'
+type: module
+description: 'Sends CKEditor content to the Python ML API on node save.'
+package: Custom
+core_version_requirement: ^10 || ^11

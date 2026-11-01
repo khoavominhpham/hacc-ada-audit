@@ -1,4 +1,5 @@
 <?php
+
 use Drupal\node\Entity\Node;
 
 // 1. Locate the JSON file using the absolute directory path
@@ -9,22 +10,43 @@ if (!file_exists($json_file)) {
 }
 
 $data = json_decode(file_get_contents($json_file), TRUE);
+$created = 0;
+$updated = 0;
 
-// 2. Loop through the scraped pages and create a Drupal node for each
+// 2. Loop through the scraped pages: update if title exists, otherwise create
 foreach ($data as $item) {
-    $node = Node::create([
-        'type'        => 'basic_page', 
-        'title'       => substr($item['title'], 0, 255),
-        'field_body'  => [ 
-            'value'   => $item['body'],
-            'format'  => 'full_html', 
-        ],
-    ]);
-    
-    $node->setPublished(TRUE);
-    $node->save();
-    
-    echo "✅ Automatically created Drupal node: " . $item['title'] . "\n";
+    $title = substr($item['title'], 0, 255);
+
+    $existing_nids = \Drupal::entityQuery('node')
+        ->condition('type', 'basic_page')
+        ->condition('title', $title)
+        ->accessCheck(FALSE)
+        ->execute();
+
+    if (!empty($existing_nids)) {
+        $nid = reset($existing_nids);
+        $node = Node::load($nid);
+        $node->set('field_body', [
+            'value'  => $item['body'],
+            'format' => 'full_html',
+        ]);
+        $node->save();
+        $updated++;
+        echo "🔄 Updated existing Drupal node: " . $title . "\n";
+    } else {
+        $node = Node::create([
+            'type'       => 'basic_page',
+            'title'      => $title,
+            'field_body' => [
+                'value'  => $item['body'],
+                'format' => 'full_html',
+            ],
+        ]);
+        $node->setPublished(TRUE);
+        $node->save();
+        $created++;
+        echo "✅ Created new Drupal node: " . $title . "\n";
+    }
 }
 
-echo "\n🎉 Successfully imported all HACC pages!\n";
+echo "\n🎉 Sync complete! Updated $updated pages and created $created new HACC pages!\n";
