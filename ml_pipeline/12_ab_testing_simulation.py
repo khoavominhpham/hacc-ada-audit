@@ -1,43 +1,52 @@
-import random
+import csv
 
-def run_simulation(num_pages=500):
-    # Base time in minutes per page for a manual workflow
-    manual_audit_base = 5.0  # Visually checking structure and alt tags
-    manual_fix_base = 12.0   # Looking up guidelines, writing alt text, rewriting for readability
+INPUT_CSV = "ml_pipeline/data/hacc_empirical_audit.csv"
+
+# Standard manual editorial time estimates (in minutes)
+TIME_PER_HEADING_FIX = 2    
+TIME_PER_ALT_TEXT = 3       
+TIME_PER_PARAGRAPH = 10     
+
+# AI-Assisted time estimate
+TIME_PER_AI_AUTO_FIX = 0.25 
+
+def run_roi_benchmark():
+    with open(INPUT_CSV, "r", encoding="utf-8") as f:
+        pages = list(csv.DictReader(f))
+
+    total_skips = sum(int(p["heading_skips"]) for p in pages)
+    total_bad_alt = sum(int(p["missing_or_weak_alt"]) for p in pages)
+    total_dense = sum(int(p["exceeds_grade_9"]) for p in pages)
+    pages_with_violations = sum(1 for p in pages if int(p["total_violations"]) > 0)
+
+    # Calculate Manual Hours
+    manual_mins = (total_skips * TIME_PER_HEADING_FIX) + \
+                  (total_bad_alt * TIME_PER_ALT_TEXT) + \
+                  (total_dense * TIME_PER_PARAGRAPH)
+    manual_hours = manual_mins / 60
+
+    # Calculate AI Hours
+    ai_mins = pages_with_violations * TIME_PER_AI_AUTO_FIX
+    ai_hours = ai_mins / 60
+
+    reduction_pct = ((manual_hours - ai_hours) / manual_hours) * 100
+
+    print("==========================================================")
+    print("📈 HACC WORKFLOW A/B SIMULATION: MANUAL VS. AI-ASSISTED")
+    print("==========================================================")
+    print(f"Sample Size: {len(pages)} Real Pages")
+    print(f"Total Defects to Fix: {total_skips} Headings, {total_bad_alt} Alt-Texts, {total_dense} Dense Pages")
+    print("-" * 58)
+    print(f"Traditional Manual Workflow: {manual_hours:.1f} Hours")
+    print(f"AI-Assisted Auto-Apply:      {ai_hours:.1f} Hours")
+    print("-" * 58)
+    print(f"Time Reduction:              {reduction_pct:.1f}%")
+    print(f"Labor Saved per 100 Pages:   {manual_hours - ai_hours:.1f} Hours")
     
-    # Base time in minutes per page for the AI-assisted workflow
-    ai_audit_base = 0.5  # Automated Scorecard generation and quick visual review
-    ai_fix_base = 2.0    # Applying specific UI suggestions directly
-    
-    total_manual_minutes = 0
-    total_ai_minutes = 0
-    
-    for _ in range(num_pages):
-        # Injecting variance to simulate different page complexities (e.g., more images, denser text)
-        manual_time = (manual_audit_base + random.uniform(-2, 4)) + (manual_fix_base + random.uniform(-3, 8))
-        ai_time = (ai_audit_base + random.uniform(0, 1)) + (ai_fix_base + random.uniform(-0.5, 2))
-        
-        total_manual_minutes += manual_time
-        total_ai_minutes += ai_time
-        
-    # Convert totals to hours
-    manual_hours = total_manual_minutes / 60
-    ai_hours = total_ai_minutes / 60
-    hours_saved = manual_hours - ai_hours
-    percentage_saved = (hours_saved / manual_hours) * 100
-    
-    return manual_hours, ai_hours, hours_saved, percentage_saved
+    # Extrapolate for the Final Report
+    extrapolated_savings = (manual_hours - ai_hours) * 50 
+    print(f"\n🚀 Projected Extrapolation for 5,000 Page CMS Migration:")
+    print(f"Total Projected Savings:     {extrapolated_savings:,.0f} Labor Hours")
 
 if __name__ == "__main__":
-    test_volume = 1000  # Simulating a mid-sized CMS migration
-    print(f"Running A/B simulation across {test_volume} nodes...")
-    
-    manual, ai, saved, percentage = run_simulation(test_volume)
-    
-    print("\n--- Quantitative Analytics: A/B Workflow Simulation ---")
-    print(f"Total Pages Processed: {test_volume}")
-    print(f"Traditional Manual Workflow:  {manual:.2f} hours")
-    print(f"AI-Assisted RAG Workflow:     {ai:.2f} hours")
-    print("-" * 45)
-    print(f"Projected Time Saved:         {saved:.2f} hours")
-    print(f"Efficiency Gain:              {percentage:.1f}% reduction in manual remediation")
+    run_roi_benchmark()

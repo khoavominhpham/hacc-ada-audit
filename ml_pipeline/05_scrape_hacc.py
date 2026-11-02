@@ -15,7 +15,7 @@ SEED_URLS = [
     "https://www.hacc.edu/AboutHACC/index.cfm"
 ]
 
-MAX_PAGES = 100  # 100 clean editorial content pages
+MAX_PAGES = 200  # 200 clean editorial content pages
 
 def clean_and_extract(html, page_url):
     soup = BeautifulSoup(html, 'html.parser')
