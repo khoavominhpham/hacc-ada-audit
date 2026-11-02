@@ -100,3 +100,11 @@ config/key.key.openai_api_key.yml
 # ML Pipeline Data
 ml_pipeline/data/*.json
 ml_pipeline/chroma_db/
+
+# Ignore ChromaDB vector store
+ml_pipeline/chroma_db/
+*.sqlite3
+
+# Ignore scraped datasets and audit exports
+ml_pipeline/data/*.json
+ml_pipeline/data/*.csv
